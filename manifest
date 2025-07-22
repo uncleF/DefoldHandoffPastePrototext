@@ -1,0 +1,5 @@
+name = defold_handoff_paste_textproto
+version = 0.1
+title = Defold Handoff Paste TextProto
+description = Allows to paste textproto from the clipboard as new files and nodes
+editor-script = defold_handoff_paste_textproto.editor_script

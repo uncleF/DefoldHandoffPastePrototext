@@ -1,0 +1,73 @@
+local M = {}
+
+local function extract_nodes(textproto)
+  local nodes = {}
+  local left_index = 1
+  while true do
+    local start_position = textproto:find("nodes%s*%b{}", left_index)
+    if not start_position then
+      break
+    end
+    local open_brace = textproto:find("{", start_position)
+    local depth = 1
+    local right_index = open_brace + 1
+    while right_index <= #textproto and depth > 0 do
+      local character = textproto:sub(right_index, right_index)
+      if character == "{" then
+        depth = depth + 1
+      elseif character == "}" then
+        depth = depth - 1
+      end
+      right_index = right_index + 1
+    end
+    local block = textproto:sub(start_position, right_index - 1)
+    table.insert(nodes, block)
+    left_index = right_index
+  end
+  return nodes
+end
+
+local function try_to_parse_filename(textproto)
+  local nodes = extract_nodes(textproto)
+  for _, node in ipairs(nodes) do
+    if (not node:find("%sparent%s*:")) then
+      local filename = node:match('%sid%s*:%s*"([^"]+)"')
+      if (filename) then
+        return filename .. ".gui"
+      end
+    end
+  end
+  return "gui_element.gui"
+end
+
+function M.get_commands()
+  return {
+    {
+      label = "Paste from Defold Handoff as a New GUI File",
+      locations = { "Assets" },
+      query = {
+        selection = { type = "resource", cardinality = "one" }
+      },
+      active = function(opts)
+        return true
+      end,
+      run = function(opts)
+        local clipboard = editor.execute("powershell", "-Command", "\"Get-Clipboard\"", { out = "capture" })
+        local filename = try_to_parse_filename(clipboard)
+        local path = editor.get(opts.selection, "path")
+        local file_path = "./" .. path .. "/" .. filename
+        local file, err = io.open(file_path, "w")
+        if err then
+          print("Error:", err)
+          return false
+        end
+        if file then
+          file:write(clipboard)
+          file:close()
+        end
+      end
+    },
+  }
+end
+
+return M
