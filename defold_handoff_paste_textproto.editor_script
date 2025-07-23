@@ -1,5 +1,61 @@
 local M = {}
 
+local active_resource = nil
+
+local function extract_top_level_blocks(text)
+  local blocks = {}
+  for type_name, content in text:gmatch("(%w+)%s*(%b{})") do
+    local block_text = content:match("{(.*)}") -- remove outer braces
+    table.insert(blocks, { _type = type_name, _raw = block_text })
+  end
+  return blocks
+end
+
+local function parse_block(block)
+  local obj = { _type = block._type }
+  for key, value in block._raw:gmatch("([%w_]+)%s(%b{})") do
+    local subblock = {}
+    for subkey, subvalue in value:gmatch("([%w_]+)%s*:%s*([^\n]+)") do
+      subblock[subkey] = tonumber(subvalue) or subvalue
+    end
+    obj[key] = subblock
+  end
+  for key, value in block._raw:gmatch("\n%s%s([%w_]+):%s*([^\n]+)") do
+    obj[key] = tonumber(value) or value:match('^"(.*)"$') or value
+  end
+  return obj
+end
+
+local function parse_textproto(text)
+  local blocks = extract_top_level_blocks(text)
+  local result = {}
+  for _, block in ipairs(blocks) do
+    table.insert(result, parse_block(block))
+  end
+  return result
+end
+
+local function process_property_value(property, value)
+  if (property == "position" or property == "rotation" or property == "scale" or property == "size") then
+    return { value.x or 0, value.y or 0, value.z or 0, value.w or 0 }
+  end
+  return value
+end
+
+local function process_assets(asset_blocks)
+  local assets = {}
+  for _, asset_block in ipairs(asset_blocks) do
+    local asset = {}
+    for property, value in pairs(asset_block) do
+      if (property ~= "_type") then
+        asset[property] = process_property_value(property, value)
+      end
+    end
+    table.insert(assets, asset)
+  end
+  return assets
+end
+
 local function extract_nodes(textproto)
   local nodes = {}
   local left_index = 1
@@ -43,6 +99,24 @@ end
 function M.get_commands()
   return {
     {
+      label = "Edit Current File with Defold Handoff Utilities",
+      locations = { "Edit" },
+      query = {
+        selection = { type = "resource", cardinality = "one" }
+      },
+      active = function(opts)
+        local path = editor.get(opts.selection, "path")
+        if path:match(".gui$") ~= nil then
+          active_resource = path
+        end
+        return true
+      end,
+      run = function(opts)
+        active_resource = editor.get(opts.selection, "path")
+      end
+    },
+
+    {
       label = "Paste from Defold Handoff as a New GUI File",
       locations = { "Assets" },
       query = {
@@ -65,6 +139,23 @@ function M.get_commands()
           file:write(clipboard)
           file:close()
         end
+      end
+    },
+
+    {
+      label = "Paste from Defold Handoff as part of GUI hierarchy",
+      locations = { "Outline" },
+      query = {
+        selection = { type = "outline", cardinality = "one" }
+      },
+      active = function(opts)
+        return true
+      end,
+      run = function(opts)
+        local clipboard = editor.execute("powershell", "-Command", "\"Get-Clipboard\"", { out = "capture" })
+        local node = opts.selection
+        local asset_blocks = parse_textproto(clipboard)
+        local assets = process_assets(asset_blocks)
       end
     },
   }
