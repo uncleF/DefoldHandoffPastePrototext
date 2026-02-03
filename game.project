@@ -1,2 +1,5 @@
 [project]
 title = Defold Handoff Paste TextProto
+
+[library]
+include_dirs = editor
