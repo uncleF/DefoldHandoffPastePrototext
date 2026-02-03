@@ -4,6 +4,15 @@ local M = {
   opened_gui_file = nil
 }
 
+---@param string string
+---@return string
+local function normalize_string(string)
+  string = string:gsub("\r\n", "\n"):gsub("\r", "\n")
+  string = string:gsub("[ \t]+\n", "\n")
+  string = string:gsub("[ \t]+$", "")
+  return string
+end
+
 ---@param block string
 ---@param attribute string
 ---@return string?
@@ -79,14 +88,18 @@ local function merge_unique_blocks(blocks, new_blocks, attribute)
   for _, block in ipairs(blocks) do
     local value = parse_attribute_value(block, attribute)
     if value ~= nil then
-      seen[value] = true
+      local normalized_value = normalize_string(value)
+      seen[normalized_value] = true
     end
   end
   for _, new_block in ipairs(new_blocks) do
     local value = parse_attribute_value(new_block, attribute)
-    if value and not seen[value] then
-      seen[value] = true
-      table.insert(unique_blocks, new_block)
+    if value then
+      local normalized_value = normalize_string(value)
+      if (not seen[normalized_value]) then
+        seen[normalized_value] = true
+        table.insert(unique_blocks, new_block)
+      end
     end
   end
   return unique_blocks
@@ -251,8 +264,6 @@ local function resolve_opened_gui_file(options)
     else
       M.opened_gui_file = nil
     end
-  else
-    M.opened_gui_file = nil
   end
 end
 
