@@ -2,4 +2,4 @@
 title = Defold Handoff Paste TextProto
 
 [library]
-include_dirs = editor
+include_dirs = defold_handoff_paste_textproto
