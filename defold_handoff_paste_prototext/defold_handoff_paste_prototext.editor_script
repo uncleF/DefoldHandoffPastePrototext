@@ -1,0 +1,165 @@
+local Prototext = require("defold_handoff_paste_prototext.prototext") -- wherever you put the module
+
+---@class defold_handoff_paste_prototext
+---@field opened_gui_file string?
+local M = {
+  opened_gui_file = nil
+}
+
+---@param path string
+---@param extension string
+---@return boolean
+local function has_extension(path, extension)
+  extension = extension:gsub("^%.*", ""):lower()
+  local name = path:match("([^/\\]+)$") or path
+  local extracted_extension = name:match("%.([^%.]+)$")
+  return extracted_extension ~= nil and extracted_extension:lower() == extension
+end
+
+local function get_clipboard()
+  if editor.platform == "x86_64-win32" then
+    return editor.execute("powershell", "-NoProfile", "-Command", "\"Get-Clipboard\"",
+      { out = "capture", reload_resources = false })
+  elseif editor.platform == "x86_64-macos" then
+    return editor.execute("pbpaste", { out = "capture", reload_resources = false })
+  end
+  return editor.execute("xclip", "-selection", "clipboard", "-o", { out = "capture", reload_resources = false })
+end
+
+---@param path string
+---@param mode string
+---@return file*?, string?
+local function open_file(path, mode)
+  local file, error = io.open(path, mode)
+  if error then
+    print("Error:", error)
+    return nil
+  end
+  return file
+end
+
+---@param path string
+---@return string?
+local function read_file(path)
+  local file = open_file(path, "rb")
+  if not file then
+    return nil
+  end
+  local content = file:read("*a")
+  file:close()
+  return content
+end
+
+---@param path string
+---@param content string
+---@return boolean
+local function write_file(path, content)
+  local file = open_file(path, "wb")
+  if not file then
+    return false
+  end
+  file:write(content)
+  file:close()
+  return true
+end
+
+local function resolve_opened_gui_file(options)
+  if (editor.can_get(options.selection, "path")) then
+    local path = editor.get(options.selection, "path")
+    if has_extension(path, ".gui") then
+      M.opened_gui_file = path
+    else
+      M.opened_gui_file = nil
+    end
+  end
+end
+
+---@param clipboard_text string
+---@return string
+local function try_parse_filename(clipboard_text)
+  local clip = Prototext.parse(clipboard_text)
+  local nodes = Prototext.items(clip, "nodes")
+  for _, node in ipairs(nodes) do
+    if node.kind == "msg" then
+      local has_parent = node.fields["parent"] ~= nil
+      if not has_parent then
+        local id = Prototext.get_first_scalar(node, "id")
+        if type(id) == "string" and id ~= "" then
+          return id .. ".gui"
+        end
+      end
+    end
+  end
+  return "gui_component.gui"
+end
+
+local function apply_clipboard_to_file(file_text, clipboard_text, parent_id)
+  local file_ast = Prototext.parse(file_text)
+  local clip_ast = Prototext.parse(clipboard_text)
+  Prototext.add_nodes(file_ast, clip_ast, parent_id)
+  Prototext.merge_unique_by_name(file_ast, clip_ast, "fonts")
+  Prototext.merge_unique_by_name(file_ast, clip_ast, "textures")
+  return Prototext.serialize(file_ast)
+end
+
+function M.get_commands()
+  return {
+    {
+      label = "Paste from Defold Handoff as a New GUI File",
+      locations = { "Assets" },
+      query = {
+        selection = { type = "resource", cardinality = "one" }
+      },
+      active = function(options)
+        return true
+      end,
+      run = function(options)
+        local clipboard = get_clipboard()
+        local filename = try_parse_filename(clipboard)
+        local path = editor.get(options.selection, "path")
+        local file_path = "./" .. path .. "/" .. filename
+        write_file(file_path, clipboard)
+      end
+    },
+    {
+      label = "Paste from Defold Handoff",
+      locations = { "Outline" },
+      query = {
+        selection = { type = "outline", cardinality = "one" }
+      },
+      active = function(options)
+        return M.opened_gui_file ~= nil
+      end,
+      run = function(options)
+        editor.save()
+        local clipboard = get_clipboard()
+        local file_path = editor.external_file_attributes("." .. M.opened_gui_file).path
+        local content = read_file(file_path)
+        if content then
+          local parent_id = editor.can_get(options.selection, "id") and editor.get(options.selection, "id") or nil
+          local updated_content = apply_clipboard_to_file(content, clipboard, parent_id)
+          local success = write_file(file_path, updated_content)
+          if success then
+            editor.save()
+          end
+        end
+      end
+    },
+    {
+      label = "Defold Handoff",
+      locations = { "Edit" },
+      query = {
+        selection = { type = "outline", cardinality = "one" }
+      },
+      active = function(options)
+        resolve_opened_gui_file(options)
+        return true
+      end,
+      run = function(options)
+        resolve_opened_gui_file(options)
+      end
+    },
+  }
+end
+
+return M
