@@ -10,10 +10,13 @@ local M = {
 ---@param extension string
 ---@return boolean
 local function has_extension(path, extension)
-  extension = extension:gsub("^%.*", ""):lower()
-  local name = path:match("([^/\\]+)$") or path
-  local extracted_extension = name:match("%.([^%.]+)$")
-  return extracted_extension ~= nil and extracted_extension:lower() == extension
+  if path and extension then
+    extension = extension:gsub("^%.*", ""):lower()
+    local name = path:match("([^/\\]+)$") or path
+    local extracted_extension = name:match("%.([^%.]+)$")
+    return extracted_extension ~= nil and extracted_extension:lower() == extension
+  end
+  return false
 end
 
 local function get_clipboard()
